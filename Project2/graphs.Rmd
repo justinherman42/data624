@@ -1,0 +1,536 @@
+---
+title: "Untitled"
+author: "Justin Herman"
+date: "May 3, 2019"
+output:
+  html_document:
+    theme: "simplex"
+    highlight: 'pygments'
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+<style>h1{text-transform: capitalize}</style>
+<style>h2{text-transform: capitalize}</style>
+<style>h3{text-transform: capitalize}</style>
+<style>p:first-letter {text-transform: capitalize}</style>
+<style>li:first-letter {text-transform: capitalize}</style>
+
+
+# HW 9 A{.tabset .tabset-fade}
++ I have added layered tabs. 
+    + please make sure to scroll through secondary tabs in each category
+
+## exploration {.tabset .tabset-fade}
+
+
+### Notes from EDA
++ Some clear multicolinearity issues(see corrplot section)
+    + last 3 columns seems to share identical correlations with other prdictors
+    + some of Hydrolic pressure have high correlation
+    + Bailing Density, have high correlations with each other and last 3 variables
+    + carb temp and Carb pressure share high correlation with each other
++ Our variables dont have very strong correlation scores with ph
+    + Carb rel seems to have higheest correltaion, might be one oflast 3 columns to keep
+    + MNF flow has highest correltion with PH(negative)
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+rm(list=ls())
+library (MASS)
+library(tidyverse)
+library(psych)
+library(kableExtra)
+library(knitr)
+library(corrplot)
+library(caret)
+library(xlsx)
+library(mice)
+library(gridExtra)
+library(grid)
+library(cowplot)
+library(mice)
+library(VIM)
+library(reshape2)
+```
+
+```{r}
+df <- read.xlsx("train.xlsx",1)
+test <- read.xlsx("test.xlsx",1)
+```
+
+### Look at entire dataset and PH
+```{r,echo=FALSE}
+## General Visualizations
+kable(describe(df),digits =2,'markdown',booktabs =T)
+box_ph <-  ggplot(df, aes(x="PH", y=PH))+geom_boxplot()
+hist_ph <- ggplot(df, aes(x=PH))+geom_histogram(stat='count')
+plot_grid(box_ph,hist_ph, labels = c('A', 'B'))
+```
+
+
+### Look at our brand code factor column
+
+```{r}
+## Visualizations for Brand code factor column
+a <- df %>% 
+  select_if(is.factor) %>% 
+  gather %>% 
+  ggplot(aes(x = value)) + 
+  geom_histogram(stat='count') + 
+  facet_wrap(~key)
+b <- df %>% 
+  select_if(is.factor) %>% 
+  gather %>% 
+  ggplot(aes(x = value)) + 
+  geom_boxplot(aes(x = df$Brand.Code,y = df$PH)) + 
+  facet_wrap(~key)
+
+plot_grid(a,b)
+```
+
+### Corrplots
+
+```{r,echo=FALSE}
+
+## Entire corrplot
+corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson"))
+
+
+## very high cvorrelations 
+corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[30:32,30:32, drop=FALSE], cl.pos='n', method = "number")
+corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[4:5,4:5, drop=FALSE], cl.pos='n', method = "number")
+
+## somewhat high correlations
+corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[9:14,9:14, drop=FALSE], cl.pos='n', method = "number")
+
+corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[1:16,25, drop=FALSE], cl.pos='n', method = "number")
+corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[17:32,25, drop=FALSE], cl.pos='n', method = "number")
+
+```
+
+
+    
+
+
+### Looking at PH scatterplots versus predictors and histograms of predictors
+```{r,echo=FALSE}
+
+### melt df for plots predictors 2-12
+df.m <- melt(df[,c(2:12,26)], "PH")
+
+ggplot(df.m, aes(value, PH)) + 
+  geom_point() + 
+  facet_wrap(~variable, scales = "free")
+
+ggplot(df.m, aes(value)) + 
+  geom_histogram(stat = "count") + 
+  facet_wrap(~variable, scales = "free")
+
+
+### melt df for plots predictors 13-25
+df.m <- melt(df[,c(13:25,26)], "PH")
+
+ggplot(df.m, aes(value, PH)) + 
+  geom_point() + 
+  facet_wrap(~variable, scales = "free")
+
+ggplot(df.m, aes(value)) + 
+  geom_histogram(stat = "count") + 
+  facet_wrap(~variable, scales = "free")
+
+### melt df for plots predictors 26-33
+df.m <- melt(df[,c(26:33)], "PH")
+
+ggplot(df.m, aes(value, PH)) + 
+  geom_point() + 
+  facet_wrap(~variable, scales = "free")
+ggplot(df.m, aes(value)) + 
+  geom_histogram(stat = "count") + 
+  facet_wrap(~variable, scales = "free")
+```
+
+
+### variables that should be factor columns
++ Bowl.Setpoint
++ Pressure.Setpoint
++ PSC.CO2
++ I added some visualization and rounded for these variables. I don't think these changes will amke any difference in modeling results(all seem distributed evenly around the mean of PH), but I think we should still include it in EDA as it shows how "deeply" we looked into the data.  
+
+```{r,echo=FALSE}
+
+
+kable(table(df$Bowl.Setpoint), digits = 2,'markdown', booktabs =T)
+kable(table(df$Pressure.Setpoint), digits = 2, 'markdown', booktabs =T)
+kable(table(df$PSC.CO2), digits = 2, 'markdown',booktabs =T)
+
+df$PSC.CO2 <- round(df$PSC.CO2,2)
+## rounded new table for PSC CO2
+table(df$PSC.CO2)
+## rounded to integer new table for Pressure setpoint
+df$Pressure.Setpoint <- round(df$Pressure.Setpoint,0)
+table(df$Pressure.Setpoint)
+
+
+
+## Setpoint seems to sequence by 10 integers, and then has random integers towards the end.  filtered
+## for those rnadom observations to see any trend. I then visualize the variable.  I don't believe we need
+## to make any changes to it
+df %>% 
+    filter(Bowl.Setpoint> 120 & Bowl.Setpoint <130) %>% 
+    dplyr::select(PH)
+ggplot(df, aes(Bowl.Setpoint, PH)) + 
+  geom_point()
+
+
+## After rounding visualize Pressure.Setpoint
+ggplot(df, aes(Pressure.Setpoint, PH)) + 
+  geom_point()
+## After rounding visualize PSC.CO2
+ggplot(df, aes(PSC.CO2, PH)) + 
+  geom_point()
+
+```
+
+### Imputation and visualizing missing data
++ The rest of the analysis would require the imputed csv
+```{r}
+## missing values
+pMiss <- function(x){sum(is.na(x))/length(x)}
+apply(df,2,pMiss)
+
+
+aggr_plot <- aggr(df, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(data), cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
+
+
+
+#tempData <- mice(df,m=5,maxit=50,meth='pmm',seed=500)
+#summary(tempData)
+#completedData <- complete(tempData,1)
+#write.csv(completedData, file = "imputeddf.csv")
+
+completedData <- read.csv("imputeddf.csv")
+completedData <- completedData[,-1]
+```
+
+```{r}
+# for_removal <- caret::nearZeroVar(df)
+# for_removal
+# 
+# my_df <- as.data.frame(df)
+# for_removal <- caret::nearZeroVar(my_df)
+# my_df <- my_df[,-for_removal]
+# dim(my_df)
+
+
+ritesh.lohiya06@spsmail.cuny.edu
+jun.yan35@spsmail.cuny.edu
+```
+
+
+
+## Modeling {.tabset .tabset-fade}
++ I needed to hot encode (Brand.code), instead i just dropped it.  Figure Jun going in whatever direction he chooses anyway, was more just to get an idea of what is happening
+
+### PLS 
+
+```{r,echo=FALSE}
+## Create holdout
+## 75% of the sample size
+
+smp_size <- floor(0.75 * nrow(completedData))
+
+## set the seed to make your partition reproducible
+set.seed(123)
+train_ind <- sample(seq_len(nrow(completedData)), size = smp_size)
+bb <- completedData[,c(-26,-1)]
+train <- bb[train_ind, ]
+test <- bb[-train_ind, ]
+train <- as.matrix(train)
+test <- as.matrix(test)
+train_y <- completedData[train_ind,c('PH')]
+test_y <- completedData[-train_ind,c('PH')]
+ctrl <- caret::trainControl(method = "cv", number = 10)
+
+set.seed(100)
+lmFit1 <- caret::train(train, train_y,
+  method = "pls",
+  tuneLength = 20, 
+  trControl = ctrl,
+  preProc = c("center", "scale"))
+
+plot(lmFit1)
+
+
+lmFit1$bestTune
+predictions <- predict(lmFit1,test)
+RMSE(predictions,test_y)
+
+```
+
+
+### GLMNET
+
+```{r,echo=FALSE}
+## mke split
+set.seed(123)
+smp_size <- floor(0.75 * nrow(completedData))
+train_ind <- sample(seq_len(nrow(completedData)), size = smp_size)
+train <- bb[train_ind, ]
+test <- bb[-train_ind, ]
+train_y <- completedData[train_ind,c('PH')]
+test_y <- completedData[-train_ind,c('PH')]
+## make grid 
+myControl <- trainControl(
+  method = "cv", 
+  number = 10
+)
+
+my_df <- as.data.frame(cbind(train_y,train))
+model <- train(
+  train_y ~., 
+  my_df,
+  tuneGrid = expand.grid(
+    alpha = seq(.05, 1, length = 20),
+    lambda = seq(0.0001, 1, length = 20)
+  ),
+  method = "glmnet",
+  trControl = myControl
+)
+
+
+plot(model)
+model$bestTune
+```
+
+#### Visualize GLMNET
+
+```{r,echo=FALSE}
+model$bestTune
+
+results <- model$results
+#results
+### gete rmse on test
+predictions <- predict(model,test)
+RMSE(predictions,test_y)
+
+## plot residuals 
+xyplot(train_y ~ predict(model),
+type = c("p", "r"),
+xlab = "Predicted", ylab = "Observed")
+
+
+predicted <- predict(model)
+actual <-test_y 
+xyplot((predicted-actual) ~ predicted,
+type = c("p", "g"),
+xlab = "Predicted", ylab = "Residuals") 
+
+```
+
+
+### Full xgboost tree 
+
+```{r}
+
+# smp_size <- floor(0.75 * nrow(completedData))
+# train_ind <- sample(seq_len(nrow(completedData)), size = smp_size)
+# train <- bb[train_ind, ]
+# test <- bb[-train_ind, ]
+# train_y <- completedData[train_ind,c('PH')]
+# test_y <- completedData[-train_ind,c('PH')]
+# 
+# xgb_trcontrol = trainControl(
+#   method = "cv",
+#   number = 5,
+#   allowParallel = TRUE,
+#   verboseIter = FALSE,
+#   returnData = FALSE
+# )
+# 
+# xgbGrid <- expand.grid(nrounds = c(100,200),
+#                        max_depth = c(10, 15, 20, 25,35,50),
+#                        colsample_bytree = seq(0.5, 0.9, length.out = 5),
+#                        eta = 0.1,
+#                        gamma=0,
+#                        min_child_weight = 1,
+#                        subsample = 1
+#                       )
+# set.seed(0)
+# xgb_model = train(
+#   train, train_y,
+#   trControl = xgb_trcontrol,
+#   tuneGrid = xgbGrid,
+#   method = "xgbTree")
+
+
+```
+
+
+#### Visualize xgboost
+
+```{r}
+#save(xgb_model, file = "PH_model1.rda")
+load("PH_model1.rda")
+set.seed(123)
+
+
+xgb_model$bestTune
+predicted = predict(xgb_model, test)
+residuals = test_y - predicted
+RMSE(predicted, test_y)
+
+
+
+my_data = as.data.frame(cbind(predicted = predicted,
+                            observed = test_y))
+# Plot predictions vs test data
+ggplot(my_data,aes(predicted, test_y)) + geom_point(color = "darkred", alpha = 0.5) + 
+    geom_smooth(method=lm)+ ggtitle('Linear Regression ') + ggtitle("Extreme Gradient Boosting: Prediction vs Test Data") +
+      xlab("Predecited PH ") + ylab("PH") + 
+        theme(plot.title = element_text(color="darkgreen",size=16,hjust = 0.5),
+         axis.text.y = element_text(size=12), axis.text.x = element_text(size=12,hjust=.5),
+         axis.title.x = element_text(size=14), axis.title.y = element_text(size=14))
+
+
+# col_index <- varImp(xgb_model)$importance %>% 
+#   mutate(names=row.names(.)) %>% 
+#   arrange(-Overall)
+# col_index$names
+#write.csv(col_index,"full_tree.csv")
+
+```
+
+
+### Variable importance 
++ pls, elastic net, xgboost
+```{r}
+varImp(lmFit1)
+varImp(model)
+varImp(xgb_model)
+```
+
+
+## Run models without collinearity issues{.tabset .tabset-fade}
++ didnt get to this yet, but maybe i can run some models in subsetted dataset, while Jun chooses to run on entire dataset?
+
+```{r}
+# smp_size <- floor(0.75 * nrow(completedData))
+# train_ind <- sample(seq_len(nrow(completedData)), size = smp_size)
+# train <- bb[train_ind,-c(31,29) ]
+# test <- bb[-train_ind,-c(31,29) ]
+# train_y <- completedData[train_ind,c('PH')]
+# test_y <- completedData[-train_ind,c('PH')]
+# 
+# xgb_trcontrol = trainControl(
+#   method = "cv",
+#   number = 5,
+#   allowParallel = TRUE,
+#   verboseIter = FALSE,
+#   returnData = FALSE
+# )
+# 
+# xgbGrid <- expand.grid(nrounds = c(100,200),
+#                        max_depth = c(10, 15, 20, 25,35,50),
+#                        colsample_bytree = seq(0.5, 0.9, length.out = 5),
+#                        eta = 0.1,
+#                        gamma=0,
+#                        min_child_weight = 1,
+#                        subsample = 1
+#                       )
+# set.seed(0)
+# xgb_model = train(
+#   train, train_y,
+#   trControl = xgb_trcontrol,
+#   tuneGrid = xgbGrid,
+#   method = "xgbTree")
+
+```
+
+
+
+
+
+
+
+## Jun's code
+
+```{r}
+# completedData <- read.csv("imputed.csv")
+# complete_df_imputed <- completedData
+# 
+# complete_df_imputed <- complete_df_imputed[,-1]
+# set.seed(123)
+# smp_size <- floor(0.75 * nrow(complete_df_imputed))
+# train_ind <- sample(seq_len(nrow(complete_df_imputed)), size = smp_size)
+# train <- bb[train_ind,-1 ]
+# test <- bb[-train_ind,-1 ]
+# train_y <- completedData[train_ind,c('PH')]
+# test_y <- completedData[-train_ind,c('PH')]
+# 
+# 
+# 
+# library(doParallel)
+# library(caret)
+# registerDoParallel(4)
+# getDoParWorkers()
+# 
+# set.seed(123)
+# my_control <- trainControl(method = 'cv', # for “cross-validation”
+#                            number = 3, # number of k-folds
+#                            savePredictions = 'final',
+#                            allowParallel = TRUE)
+# 
+# model_list <- caretList(train,
+#                         train_y,
+#                         trControl = my_control,
+#                         methodList = c('lm', 'svmRadial', 'rf',"pls", 
+#                                        'xgbTree', 'xgbLinear',"bagEarth",'glmnet',"knn" ),
+#                         tuneList = NULL,
+#                         continue_on_fail = FALSE, 
+#                         preProcess = c('center','scale'))
+# 
+# options(digits = 3)
+# model_results <- data.frame(LM = min(model_list$lm$results$RMSE),
+#  SVM = min(model_list$svmRadial$results$RMSE),
+#  RF = min(model_list$rf$results$RMSE),
+#  XGBT = min(model_list$xgbTree$results$RMSE),
+#  XGBL = min(model_list$xgbLinear$results$RMSE),
+#  Mars = min(model_list$bagEarth$results$RMSE),
+#  GLMNET = min(model_list$glmnet$results$RMSE),
+#  PLS =min(model_list$pls$results$RMSE),
+#  KNN =min(model_list$knn$results$RMSE))
+#  
+# print(model_results)
+
+
+train <- readxl::read_excel('Data//StudentData.xlsx')
+eval <- readxl::read_excel('Data//StudentEvaluation.xlsx')
+
+# Summary stats table
+summary_stats <- function(df){
+  minimum <- round(apply(df, 2, min, na.rm=T),2)
+  maximum <- round(apply(df, 2, max, na.rm=T),2)
+  quantile1 <- round(apply(df, 2, quantile, 0.25, na.rm=T),2)
+  quantile3 <- round(apply(df, 2, quantile, 0.75, na.rm=T),2)
+  medians <- round(apply(df, 2, median, na.rm=T),2)
+  means <- round(apply(df, 2, mean, na.rm=T),2)
+  stdev <- round(apply(df, 2, sd, na.rm=T),2)
+  nas <- apply(apply(df, 2, is.na), 2, sum, na.rm=T)
+  nas_p <- paste(round(nas / dim(df)[1], 4) * 100, '%')
+  temp <- data.frame(means, stdev, minimum, maximum, quantile1, medians, quantile3, nas, nas_p)
+  colnames(temp) <- c('Mean', 'St.Dev', 'Min.', 'Max.', '1st.Qu.', 'Median', '3rd.Qu.', "NA", "% NA")
+  return(temp)
+}
+df$Brand.Code
+# Summary stats for train and eval sets
+train_summary <- df %>% subset(select=-c(Brand.Code)) %>% summary_stats()
+eval_summary <- eval %>% subset(select=-c(Brand.Code, PH)) %>% summary_stats()
+train_summary
+eval_summary
+```
+
