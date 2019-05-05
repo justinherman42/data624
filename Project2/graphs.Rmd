@@ -1,6 +1,6 @@
 ---
 title: "Untitled"
-author: "Justin Herman"
+authors: "Justin Herman, Jun , Ritesh Lohiya"
 date: "May 3, 2019"
 output:
   html_document:
@@ -13,6 +13,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+#install.packages('xgboost')
 
 <style>h1{text-transform: capitalize}</style>
 <style>h2{text-transform: capitalize}</style>
@@ -21,7 +22,7 @@ knitr::opts_chunk$set(echo = TRUE)
 <style>li:first-letter {text-transform: capitalize}</style>
 
 
-# HW 9 A{.tabset .tabset-fade}
+# Project II{.tabset .tabset-fade}
 + I have added layered tabs. 
     + please make sure to scroll through secondary tabs in each category
 
@@ -29,20 +30,22 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 ### Notes from EDA
-+ Some clear multicolinearity issues(see corrplot section)
+    + Some clear multicolinearity issues(see corrplot section)
     + last 3 columns seems to share identical correlations with other prdictors
     + some of Hydrolic pressure have high correlation
     + Bailing Density, have high correlations with each other and last 3 variables
     + carb temp and Carb pressure share high correlation with each other
-+ Our variables dont have very strong correlation scores with ph
+    + Our variables dont have very strong correlation scores with ph
     + Carb rel seems to have higheest correltaion, might be one oflast 3 columns to keep
     + MNF flow has highest correltion with PH(negative)
+    + Brand 'B' has the most frequency followed by Brand 'D'.
+    + From the Histogram we can see Hyd.Pressure1, Hyd.Press2,Hyd.Pressure3, Carb.Flow and Balling has some really lpw values.
+    + Some of the variables like Usage.count are skewed and also has outliers.
+    + Differences exist among brands by Density, Balling, and Balling Lvl
+    + From the Density plots we can see the distribution is not uniform for some of the variables like Hyd.Pressure1, Hyd.Press2, and Hyd.Pressure3.
+    + Removing the 4 records with null PH value
+    + Rounded PSC.CO2 and Pressure.setpoint
 
-#### Ritesh things to deal with
-+ PH is missing in 4 observations( see bottom of "look at entire dataset PH" section )
-    + If you want to drop these or impute these, it's up to you.  i'd vote drop them 
-+ I think we should round off PSC.CO2 and Pressure.setpoint( see "Variables that seem discrete" section)
-+ 
 
 ```{r,echo=FALSE,message=FALSE,warning=FALSE}
 rm(list=ls())
@@ -65,8 +68,42 @@ library(reshape2)
 
 ```{r}
 df <- read.xlsx("train.xlsx",1)
+df = subset(df, !is.na(PH))
+df$Pressure.Setpoint = round(df$Pressure.Setpoint, 0)
+df$PSC.CO2 = round(df$PSC.CO2, 2)
 test <- read.xlsx("test.xlsx",1)
 ```
+
+###Look at the Brand differences
+
+```{r,echo=FALSE}
+#Lets see brand codes
+
+A <- df[df$Brand.Code == "A",]
+Brand_A <- colMeans(A[,2:ncol(A)], na.rm = TRUE)
+B <- df[df$Brand.Code == "B",]
+Brand_B <- colMeans(B[,2:ncol(B)], na.rm = TRUE)
+C <- df[df$Brand.Code == "C",]
+Brand_C <- colMeans(C[,2:ncol(C)], na.rm = TRUE)
+D <- df[df$Brand.Code == "D",]
+Brand_D <- colMeans(D[,2:ncol(D)], na.rm = TRUE)
+Na <- df[!df$Brand.Code %in% c("A", "B", "C", "D"),]
+Brand_Na <- colMeans(Na[,2:ncol(Na)], na.rm = TRUE)
+
+Brands <- cbind(Brand_A, Brand_B, Brand_C, Brand_D, Brand_Na)
+round(Brands, 4)
+```
+
+
+###Density Plots
+
+```{r,echo=FALSE}
+par(mfrow = c(3,5), cex = .5)
+for (i in colnames(df)) {
+ smoothScatter(df[,i], main = names(df[i]), ylab = "", xlab = "", colramp = colorRampPalette(c("white", "blue")))
+ }
+```
+
 
 ### Look at entire dataset and PH
 ```{r,echo=FALSE}
@@ -126,8 +163,6 @@ corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[17:32,25, drop=
 
 ```
 
-
-    
 
 
 ### Looking at PH scatterplots versus predictors and histograms of predictors
