@@ -120,6 +120,7 @@ corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[4:5,4:5, drop=F
 ## somewhat high correlations
 corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[9:14,9:14, drop=FALSE], cl.pos='n', method = "number")
 
+## Get PH Correlations with predictors 
 corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[1:16,25, drop=FALSE], cl.pos='n', method = "number")
 corrplot(cor(df[,2:33],use = "complete.obs", method = "pearson")[17:32,25, drop=FALSE], cl.pos='n', method = "number")
 
