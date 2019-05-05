@@ -38,6 +38,11 @@ knitr::opts_chunk$set(echo = TRUE)
     + Carb rel seems to have higheest correltaion, might be one oflast 3 columns to keep
     + MNF flow has highest correltion with PH(negative)
 
+#### Ritesh things to deal with
++ PH is missing in 4 observations( see bottom of "look at entire dataset PH" section )
+    + If you want to drop these or impute these, it's up to you.  i'd vote drop them 
++ I think we should round off PSC.CO2 and Pressure.setpoint( see "Variables that seem discrete" section)
++ 
 
 ```{r,echo=FALSE,message=FALSE,warning=FALSE}
 rm(list=ls())
@@ -70,6 +75,13 @@ kable(describe(df),digits =2,'markdown',booktabs =T)
 box_ph <-  ggplot(df, aes(x="PH", y=PH))+geom_boxplot()
 hist_ph <- ggplot(df, aes(x=PH))+geom_histogram(stat='count')
 plot_grid(box_ph,hist_ph, labels = c('A', 'B'))
+```
+
+#### Display PH is null training data observations
+
+```{r}
+## Grab observations where PH is NA
+kable(df[(which(is.na(df$PH))),],digits =2,'markdown',booktabs =T)
 ```
 
 
@@ -155,18 +167,21 @@ ggplot(df.m, aes(value)) +
 ```
 
 
-### variables that should be factor columns
+### variables that seem discrete
 + Bowl.Setpoint
 + Pressure.Setpoint
 + PSC.CO2
-+ I added some visualization and rounded for these variables. I don't think these changes will amke any difference in modeling results(all seem distributed evenly around the mean of PH), but I think we should still include it in EDA as it shows how "deeply" we looked into the data.  
 
-```{r,echo=FALSE}
-
-
+```{r}
 kable(table(df$Bowl.Setpoint), digits = 2,'markdown', booktabs =T)
 kable(table(df$Pressure.Setpoint), digits = 2, 'markdown', booktabs =T)
 kable(table(df$PSC.CO2), digits = 2, 'markdown',booktabs =T)
+```
+
+
+#### Rounding 
++ I rounded PSC.CO2 and Pressure.setpoint. I don't think these changes will make any difference in modeling results(all seem distributed evenly around the mean of PH), but I think we should still include it in EDA as it shows how "deeply" we looked into the data.  
+```{r}
 
 df$PSC.CO2 <- round(df$PSC.CO2,2)
 ## rounded new table for PSC CO2
@@ -174,18 +189,11 @@ table(df$PSC.CO2)
 ## rounded to integer new table for Pressure setpoint
 df$Pressure.Setpoint <- round(df$Pressure.Setpoint,0)
 table(df$Pressure.Setpoint)
+```
 
-
-
-## Setpoint seems to sequence by 10 integers, and then has random integers towards the end.  filtered
-## for those rnadom observations to see any trend. I then visualize the variable.  I don't believe we need
-## to make any changes to it
-df %>% 
-    filter(Bowl.Setpoint> 120 & Bowl.Setpoint <130) %>% 
-    dplyr::select(PH)
-ggplot(df, aes(Bowl.Setpoint, PH)) + 
-  geom_point()
-
+#### PSC.CO2 and Pressure.setpoint
++ Scatterplots with new rounded off data
+```{r}
 
 ## After rounding visualize Pressure.Setpoint
 ggplot(df, aes(Pressure.Setpoint, PH)) + 
@@ -195,6 +203,21 @@ ggplot(df, aes(PSC.CO2, PH)) +
   geom_point()
 
 ```
+
+
+
+#### bowl.Setpoint predictor
++ Setpoint seems to sequence by 10 integers, and then has random integers towards the end. I filtered
+ for those random observations to see any trend. I then visualize the variable.  I don't believe we need
+to make any changes to it
+```{r}
+df %>% 
+    filter(Bowl.Setpoint> 120 & Bowl.Setpoint <130) %>% 
+    dplyr::select(PH)
+ggplot(df, aes(Bowl.Setpoint, PH)) + 
+  geom_point()
+```
+
 
 ### Imputation and visualizing missing data
 + The rest of the analysis would require the imputed csv
@@ -226,9 +249,6 @@ completedData <- completedData[,-1]
 # my_df <- my_df[,-for_removal]
 # dim(my_df)
 
-
-ritesh.lohiya06@spsmail.cuny.edu
-jun.yan35@spsmail.cuny.edu
 ```
 
 
@@ -457,7 +477,8 @@ varImp(xgb_model)
 
 
 
-## Jun's code
+### Caret ensemble
++ wasn't working 
 
 ```{r}
 # completedData <- read.csv("imputed.csv")
@@ -506,31 +527,36 @@ varImp(xgb_model)
 #  KNN =min(model_list$knn$results$RMSE))
 #  
 # print(model_results)
+```
 
+### Jun's Code
 
-train <- readxl::read_excel('Data//StudentData.xlsx')
-eval <- readxl::read_excel('Data//StudentEvaluation.xlsx')
++ this isn't Jun's complete slack code.  I added it becuase i wanted to take a look at the functions he posted to slack
 
-# Summary stats table
-summary_stats <- function(df){
-  minimum <- round(apply(df, 2, min, na.rm=T),2)
-  maximum <- round(apply(df, 2, max, na.rm=T),2)
-  quantile1 <- round(apply(df, 2, quantile, 0.25, na.rm=T),2)
-  quantile3 <- round(apply(df, 2, quantile, 0.75, na.rm=T),2)
-  medians <- round(apply(df, 2, median, na.rm=T),2)
-  means <- round(apply(df, 2, mean, na.rm=T),2)
-  stdev <- round(apply(df, 2, sd, na.rm=T),2)
-  nas <- apply(apply(df, 2, is.na), 2, sum, na.rm=T)
-  nas_p <- paste(round(nas / dim(df)[1], 4) * 100, '%')
-  temp <- data.frame(means, stdev, minimum, maximum, quantile1, medians, quantile3, nas, nas_p)
-  colnames(temp) <- c('Mean', 'St.Dev', 'Min.', 'Max.', '1st.Qu.', 'Median', '3rd.Qu.', "NA", "% NA")
-  return(temp)
-}
-df$Brand.Code
-# Summary stats for train and eval sets
-train_summary <- df %>% subset(select=-c(Brand.Code)) %>% summary_stats()
-eval_summary <- eval %>% subset(select=-c(Brand.Code, PH)) %>% summary_stats()
-train_summary
-eval_summary
+```{r}
+# train <- readxl::read_excel('Data//StudentData.xlsx')
+# eval <- readxl::read_excel('Data//StudentEvaluation.xlsx')
+# 
+# # Summary stats table
+# summary_stats <- function(df){
+#   minimum <- round(apply(df, 2, min, na.rm=T),2)
+#   maximum <- round(apply(df, 2, max, na.rm=T),2)
+#   quantile1 <- round(apply(df, 2, quantile, 0.25, na.rm=T),2)
+#   quantile3 <- round(apply(df, 2, quantile, 0.75, na.rm=T),2)
+#   medians <- round(apply(df, 2, median, na.rm=T),2)
+#   means <- round(apply(df, 2, mean, na.rm=T),2)
+#   stdev <- round(apply(df, 2, sd, na.rm=T),2)
+#   nas <- apply(apply(df, 2, is.na), 2, sum, na.rm=T)
+#   nas_p <- paste(round(nas / dim(df)[1], 4) * 100, '%')
+#   temp <- data.frame(means, stdev, minimum, maximum, quantile1, medians, quantile3, nas, nas_p)
+#   colnames(temp) <- c('Mean', 'St.Dev', 'Min.', 'Max.', '1st.Qu.', 'Median', '3rd.Qu.', "NA", "% NA")
+#   return(temp)
+# }
+# df$Brand.Code
+# # Summary stats for train and eval sets
+# train_summary <- df %>% subset(select=-c(Brand.Code)) %>% summary_stats()
+# eval_summary <- eval %>% subset(select=-c(Brand.Code, PH)) %>% summary_stats()
+# train_summary
+# eval_summary
 ```
 
