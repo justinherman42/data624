@@ -1,0 +1,408 @@
+---
+title: "Modeling"
+output: 
+  html_document:
+    toc: true
+---
+
+```{r include=F}
+knitr::opts_chunk$set(warning=F)
+```
+
+
+```{r message=F}
+library(dplyr)
+library(kableExtra)
+library(caret)
+library(doParallel)
+```
+
+We tune a total of 6 models from the following categories of models:
+
+- Linear models: partial least square, elastic nets
+- Non-linear models: k-nearest neighbors, support vector machine
+- Tree-based models: random forest, gradient boosting machines
+
+## Data Preparation
+
+```{r}
+# Read in data
+train <- readxl::read_excel('Data//StudentData.xlsx')
+eval <- readxl::read_excel('Data//StudentEvaluation.xlsx')
+```
+
+The variable `Brand Code` is a categorical variable, having 4 classes (A, B, C, and D). We opt to use the "one-hot" encoding scheme for this variable, creating 5 new variables for the data: BrandCodeA, BrandCodeB, BrandCodeC, BrandCodeD, and BrandCodeNA.
+
+```{r}
+# One-hot encoding the categorical variable `Brand Code`
+train$`Brand Code` <- addNA(train$`Brand Code`)
+eval$`Brand Code` <- addNA(eval$`Brand Code`)
+brandCodeTrain <- predict(dummyVars(~`Brand Code`, data=train), train)
+brandCodeEval <- predict(dummyVars(~`Brand Code`, data=eval), eval)
+head(brandCodeTrain, 10)
+head(train$`Brand Code`, 10)
+head(brandCodeEval, 10)
+head(eval$`Brand Code`, 10)
+train <- cbind(brandCodeTrain, subset(train, select=-c(`Brand Code`)))
+eval <- cbind(brandCodeEval, subset(eval, select=-c(`Brand Code`)))
+```
+
+White spaces and special characters in the column names are removed so they does not cause issues in some of the R packages.
+
+```{r}
+# Remove special symbols (white space and `) in names
+names(train) <- gsub(patter=c(' |`'), replacement='', names(train))
+names(eval) <- gsub(patter=c(' |`'), replacement='', names(eval))
+```
+
+There are a few rows with target variable (PH) missing. These rows are removed, since they cannot be used for training.
+
+```{r}
+# Remove rows in training set with missing target variables
+train <- train[complete.cases(train$PH),]
+```
+
+There is one near-zero-variance variable in the data:
+
+```{r}
+# Check near-zero-variance variables
+nearZeroVar(train, names=T)
+```
+
+Below, we remove the near-zero-variance predictor, and separate the predictors and target:
+
+```{r}
+# Separate the predictors and target, and remove nzv variable
+xTrain <- subset(train, select=-c(PH,`HydPressure1`)) %>% as.data.frame()
+xEval <- subset(eval, select=-c(PH,`HydPressure1`)) %>% as.data.frame()
+yTrain <- train$PH
+```
+
+The `train` function from the `caret` package is used to tune the models. The 5-fold cross validation scheme is used to estimate the model performance based on their RMSE. Below, we create the folds and set up the train control:
+
+```{r}
+set.seed(1)
+cvFolds <- createFolds(yTrain, k=5)
+trControl <- trainControl(verboseIter=T,
+                          method='cv', 
+                          number=5,
+                          index=cvFolds)
+```
+
+For the missing values, we experiment with three different imputation algorithms provided in the `preProcess` function:
+
+- KNN imputation
+- Bagged trees imputation
+- Median imputation
+
+As will be seen in the "Linear Models" section below, the choice of imputation method does not seem to affect the prediction performance much. We opt to use the `knnImpute` method due to its high efficiency.
+
+For the linear and non-linear models, the pre-processing step also include centering and scaling (standardizing), so that the variables all have a mean of 0 and standard deviation of 1. For the tree-based models, this step is omitted, since tree models work fine without this step.
+
+The `caret` package supports parallel processing (multi-core training). This capability significantly lowers the training time:
+
+```{r}
+# Set up and start multi-core processing
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+```
+
+## Model Building and Tuning
+
+### Linear Models
+
+In this section, we tune 6 models for the following purpose in mind:
+
+- Understand the effect of different imputation methods on the model performance
+- Find the optimal hyper-parameters for the respective linear models
+
+For the partial least squares, the models are tuned over the number of components used in the model. 3 models are created, each uses a different imputation method:
+
+```{r message=F}
+# PLS
+plsFit1 <- train(x=xTrain,
+                 y=yTrain, 
+                 method='pls',
+                 tuneLength=20,
+                 trControl=trControl,
+                 preProc=c('knnImpute', 'center', 'scale'))
+
+plsFit2 <- train(x=xTrain,
+                 y=yTrain, 
+                 method='pls',
+                 tuneLength=20,
+                 trControl=trControl,
+                 preProc=c('bagImpute', 'center', 'scale'))
+
+plsFit3 <- train(x=xTrain,
+                 y=yTrain, 
+                 method='pls',
+                 tuneLength=20,
+                 trControl=trControl,
+                 preProc=c('medianImpute', 'center', 'scale'))
+```
+
+For the elastic nets, the models are tuned over the two regularization parameters. Likewise, 3 models are tuned, each with different imputation method:
+
+```{r message=F}
+# Elastic Net
+enetFit1 <- train(x=xTrain,
+                  y=yTrain,
+                  method='enet',
+                  tuneGrid=expand.grid(.fraction = seq(0, 1, by=0.1), 
+                                       .lambda = seq(0, 1, by=0.1)),
+                  trControl=trControl,
+                  preProc=c('knnImpute', 'center', 'scale'))
+
+enetFit2 <- train(x=xTrain,
+                  y=yTrain,
+                  method='enet',
+                  tuneGrid=expand.grid(.fraction = seq(0, 1, by=0.1), 
+                                       .lambda = seq(0, 1, by=0.1)),
+                  trControl=trControl,
+                  preProc=c('bagImpute', 'center', 'scale'))
+
+enetFit3 <- train(x=xTrain,
+                  y=yTrain,
+                  method='enet',
+                  tuneGrid=expand.grid(.fraction = seq(0, 1, by=0.1), 
+                                       .lambda = seq(0, 1, by=0.1)),
+                  trControl=trControl,
+                  preProc=c('medianImpute', 'center', 'scale'))
+
+```
+
+The performance of these models are be compared using the `resamples` function:
+
+```{r}
+resamples(list(PLS1=plsFit1, PLS2=plsFit2, PLS3=plsFit3,
+               enet1=enetFit1, enet2=enetFit2, enet3=enetFit3)) %>% summary()
+```
+
+As you can see, the performance differences are very small among the different imputation methods. We opt to use the `knnImpute` method from this point on, due to its efficiency.
+
+```{r}
+plsFit <- plsFit1
+enetFit <- enetFit1
+
+plot(plsFit)
+plot(enetFit)
+```
+
+The final linear models are:
+
+```{r}
+plsFit$finalModel
+enetFit$finalModel
+```
+
+### Non-linear Models
+
+For the KNN method, the model is tuned over the number of k-nearest neighbors used to make prediction:
+
+```{r include = FALSE}
+knnFit <- readRDS("Models//knn.rds")
+```
+
+```{r eval=F}
+# KNN
+knnFit <- train(x=xTrain,
+                y=yTrain,
+                method='knn',
+                tuneLength=20,
+                trControl=trControl,
+                preProc=c('knnImpute', 'center', 'scale'))
+```
+
+```{r}
+plot(knnFit)
+```
+
+
+For the support vector machine, we choose the radial basis kernel function. The hyper-parameters being tuned is the cost value. The scale parameter sigma is fixed and determined by the function analytically. 
+
+```{r include = FALSE}
+svmFit <- readRDS("Models//svm.rds")
+```
+
+```{r eval=F}
+# Support Vector Machine
+svmFit <- train(x=xTrain,
+                y=yTrain,
+                method="svmRadial",
+                tuneLength=20,
+                trControl=trControl,
+                preProc=c('knnImpute', 'center', 'scale'))
+```
+
+```{r}
+plot(svmFit)
+```
+
+The final non-linear models are:
+
+```{r}
+knnFit$finalModel
+svmFit$finalModel
+```
+
+### Tree-based Models
+
+For the random forest model, the `mtry` parameter, which is the number of randomly selected predictors in each tree, is tuned to obtain the optimal model. The `rf` implementation in R does not permit missing values, therefore `knnImpute` is used in the pre-processing step.
+
+
+```{r include = FALSE}
+rf <- readRDS("Models//rf.rds")
+```
+
+```{r eval=F}
+# Random Forest
+rf <- train(x=xTrain, 
+            y=yTrain, 
+            method='rf',
+            tuneLength=10,
+            trControl=trControl,
+            preProc=c('knnImpute'), 
+            importance=T)
+```
+
+```{r}
+plot(rf)
+```
+
+For the XGBoost model, below is a list of the parameters being tuned:
+
+- `nrounds` : boosting iterations (trees)
+- `max_depth` : max tree depth
+- `eta` : learning rate
+- `gamma` : minimum loss reduction
+- `colsample_bytree` : subsample ratio of columns
+- `min_child_weight` : minimum sum of instance weight
+- `subsample` : subsample ratio of rows
+
+In addition, the XGBoost allows missing value in the data. Here, we experiment with both imputing the missing values (with `knnImpute`) and not imputing the missing values.
+
+```{r include = FALSE}
+xgb1 <- readRDS("Models//xgb1.rds")
+xgb2 <- readRDS("Models//xgb2.rds")
+```
+
+```{r eval=F}
+# XGBoost
+xgbGrid <- expand.grid(.nrounds=c(100, 500, 1000, 1500), # boosting iterations (trees)
+                       .max_depth=c(4, 6, 8, 10), # max tree depth
+                       .eta=c(0.001, 0.01, 0.1, 0.5), # learning rate
+                       .gamma=c(0),# minimum loss reduction
+                       .colsample_bytree=c(0.4, 0.6, 0.8, 1), # subsample ratio of columns
+                       .min_child_weight=c(1, 5, 15), # minimum sum of instance weight
+                       .subsample=c(0.5, 0.75, 1))  # subsample ratio of rows
+
+xgb1 <- train(x = xTrain,
+              y = yTrain,
+              method = 'xgbTree',
+              tuneGrid = xgbGrid,
+              trControl = trControl)
+
+xgb2 <- train(x = xTrain,
+              y = yTrain,
+              method = 'xgbTree',
+              tuneGrid = xgbGrid,
+              trControl = trControl,
+              preProce = c('knnImpute'))
+
+# End multi-core processing
+stopCluster(cl)
+registerDoSEQ()
+```
+
+```{r}
+resamples(list(XGB1=xgb1, XGB2=xgb2)) %>% summary()
+```
+
+It appears that the performance difference between imputing and not imputing are negligible. We opt to use the imputed model since it is a slight improvement and `knnImpute` does not take that much time to perform.
+
+The final tree-based models are:
+
+```{r}
+rf
+xgb <- xgb2
+xgb$finalModel
+```
+
+## Model Evaluation and Comparison
+
+### Variable Importance
+
+Following models have their model-specific variable importance:
+
+- partial least square
+- random forest
+- xgboost
+
+For other models, the default action in `caret` is to evaluate the variable importance based on loess smoother fit between the target and the predictors (see https://topepo.github.io/caret/variable-importance.html). 
+
+Blow, the ranking of variables are calculated and tabulate below. As can be seen, the variable importance calculated for elastic net, KNN, and SVM are the same, since they do not have model-specific method, and are all calculated based on loess R-squares.
+
+```{r warning=F}
+getRank <- function(trainObjects){
+  temp <- c()
+  methods <- c()
+  for(object in trainObjects){
+    methods <- c(methods, object$method)
+    varimp <- varImp(object)[[1]]
+    varimp$variables <- row.names(varimp)
+    rank <- varimp[order(varimp$Overall, decreasing = T),] %>% row.names()
+    temp <- cbind(temp, rank)
+    
+  }
+  temp <- as.data.frame(temp)
+  names(temp) <- methods
+  temp$Rank <- c(1:dim(temp)[1])
+  temp <- select(temp, Rank, everything())
+  return(temp)
+}
+
+kable(getRank(list(plsFit, rf, xgb, enetFit, knnFit, svmFit)))
+```
+
+The variable importance calculated based on PLS, RF, XGB, and loess R-squares are plotted below:
+
+```{r}
+plot(varImp(plsFit), main='Variable Importance based on PLS')
+plot(varImp(rf), main='Variable Importance based on Random Forest')
+plot(varImp(xgb), main='Variable Importance based on XGBoost')
+plot(varImp(svmFit), main='Variable Importance based on Loess R-Squares')
+```
+
+### Model Performance
+
+The models' performance are listed below:
+
+```{r}
+resamples(list(PLS=plsFit, ENet=enetFit, KNN=knnFit, SVM=svmFit, RF=rf, XGB=xgb)) %>% summary()
+```
+
+It can be seen that the XGBoost model achieves better performance. It has the lowest average RMSE. Based on this, we opt to choose the XGBoost model as our final models.
+
+Below are the boxplots of the RMSE in the CV folds for the models. It can be seen that the linear models have very tight spread in their RMSE, while the non-linear and the tree-based models have higher spread. This means that linear models have lower variance than the non-linear and tree-based models. It makes sense since non-linear models and tree-based models are in general more powerful than the linear models, and therefore prompt to overfit (high variance, low bias).
+
+```{r}
+par(mfrow=c(2,3))
+boxplot(plsFit$resample$RMSE, main='CV RMSE for PLS')
+boxplot(enetFit$resample$RMSE, main='CV RMSE for ENet')
+boxplot(knnFit$resample$RMSE, main='CV RMSE for KNN')
+boxplot(svmFit$resample$RMSE, main='CV RMSE for SVM')
+boxplot(rf$resample$RMSE, main='CV RMSE for RF')
+boxplot(xgb$resample$RMSE, main='CV RMSE for XGB')
+```
+
+### Eval Set Prediction
+
+Below, we make the prediction using the XGB model, and save the result:
+
+```{r}
+(pred <- predict(xgb, newdata=xEval))
+eval$PH <- pred
+write.csv(eval, "StudentEvaluation_PH_PREDICTED.csv", row.names=FALSE)
+```
+
